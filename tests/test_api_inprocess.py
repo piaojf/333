@@ -48,6 +48,11 @@ class ApiTests(unittest.TestCase):
                 self.assertEqual(self.client.put('/values/1', json={'value': value}).status_code, 422)
         self.assertEqual(self.client.put('/values/9223372036854775807', json={'value': 'x'}).status_code, 200)
 
+    def test_rejects_unpaired_surrogate(self):
+        response = self.client.put('/values/1', content=b'{"value":"\\ud800"}',
+                                   headers={'content-type': 'application/json'})
+        self.assertEqual(response.status_code, 422)
+
     def test_size_limit_and_unavailable_store(self):
         self.assertEqual(self.client.put('/values/1', json={'value': 'é' * 524288}).status_code, 200)
         self.assertEqual(self.client.put('/values/1', json={'value': 'é' * 524289}).status_code, 413)

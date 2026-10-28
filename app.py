@@ -35,7 +35,11 @@ def parse_key(key: str) -> int:
 @app.put("/values/{key}")
 async def put_value(key: str, payload: ValueInput):
     number = parse_key(key)
-    if len(payload.value.encode("utf-8")) > MAX_VALUE_BYTES:
+    try:
+        value_bytes = payload.value.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise HTTPException(status_code=422, detail="Value must be valid UTF-8") from exc
+    if len(value_bytes) > MAX_VALUE_BYTES:
         raise HTTPException(status_code=413, detail="Value exceeds 1 MiB in UTF-8")
     try:
         await app.state.redis.set(str(number), payload.value)

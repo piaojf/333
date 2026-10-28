@@ -12,8 +12,10 @@ BASE_URL = os.environ.get("API_URL", "http://127.0.0.1:8000")
 _NO_BODY = object()
 
 
-def request(method, key, value=_NO_BODY):
-    body = None if value is _NO_BODY else json.dumps({"value": value}, ensure_ascii=False).encode()
+def request(method, key, value=_NO_BODY, raw_body=None):
+    body = raw_body if raw_body is not None else (
+        None if value is _NO_BODY else json.dumps({"value": value}, ensure_ascii=False).encode()
+    )
     req = urllib.request.Request(f"{BASE_URL}/values/{key}", data=body, method=method,
                                  headers={"Content-Type": "application/json"})
     try:
@@ -41,13 +43,21 @@ class ValueApiTests(unittest.TestCase):
         self.assertEqual(request("GET", other)[1]["value"], "other")
 
     def test_key_and_value_validation(self):
-        for key in ("0", "01", "-1", "1.5", "9223372036854775808"):
+        for key in ("0", "01", "-1", "1.5", "9223372036854775808", "999999999999999999999", "abc"):
             with self.subTest(key=key):
                 self.assertEqual(request("GET", key)[0], 422)
-        self.assertIn(request("GET", "9223372036854775807")[0], (200, 404))
+                self.assertEqual(request("PUT", key, "x")[0], 422)
+        for key in ("1", "9223372036854775807"):
+            with self.subTest(key=key):
+                self.assertIn(request("GET", key)[0], (200, 404))
         for value in (None, 42, False, ["text"], {"text": "x"}):
             with self.subTest(value=value):
                 self.assertEqual(request("PUT", self.key, value)[0], 422)
+
+    def test_invalid_json_requests(self):
+        for body in (b'{', b'[]', b'null', b'{}', b'{"value":"\\ud800"}'):
+            with self.subTest(body=body):
+                self.assertEqual(request("PUT", self.key, raw_body=body)[0], 422)
 
     def test_utf8_size_limit(self):
         self.assertEqual(request("PUT", self.key, "é" * 524288)[0], 200)
