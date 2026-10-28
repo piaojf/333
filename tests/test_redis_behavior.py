@@ -112,8 +112,29 @@ class RedisBehaviorTests(unittest.TestCase):
         self.assertEqual(self.request("PUT", "before")[0], 200)
         self.stop_redis()
         try:
-            self.assertEqual(self.request("GET")[0], 503)
-            self.assertEqual(self.request("PUT", "during outage")[0], 503)
+            with socket.socket() as reservation:
+                reservation.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                reservation.bind(("127.0.0.1", self.redis_port))
+                reservation.listen()
+                reservation.settimeout(0.1)
+                done = threading.Event()
+
+                def reject_connections():
+                    while not done.is_set():
+                        try:
+                            connection, _ = reservation.accept()
+                        except socket.timeout:
+                            continue
+                        connection.close()
+
+                rejector = threading.Thread(target=reject_connections)
+                rejector.start()
+                try:
+                    self.assertEqual(self.request("GET")[0], 503)
+                    self.assertEqual(self.request("PUT", "during outage")[0], 503)
+                finally:
+                    done.set()
+                    rejector.join()
         finally:
             self.start_redis()
         self.assertEqual(self.request("GET"), (200, {"key": self.key, "value": "before"}))
