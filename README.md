@@ -37,3 +37,15 @@ docker compose -p "$PERSISTENCE_TEST_PROJECT" down
 ```
 
 `down` 保留测试卷。测试从目标 Compose 项目获取 API 端口，通过 HTTP 写入值，并在 Redis 重启和保留卷重建后分别读取；测试不会模拟异常断电。日常运行完整测试时未设置 `PERSISTENCE_TEST_PROJECT` 会跳过该测试。
+
+### 验证 Redis 故障与并发写入
+
+以下测试需要本机的 `redis-server` 和 `redis-cli`。它会在临时目录和随机本机端口启动专用 Redis 与 API 进程，测试结束后关闭进程并清理临时数据，不会停止已有的 Redis。Redis 的 `MONITOR` 会记录测试命令和值。
+
+```sh
+export REDIS_TEST_SERVER="$(command -v redis-server)"
+export REDIS_TEST_CLI="$(command -v redis-cli)"
+python3 -m unittest discover -s tests -p test_redis_behavior.py -v
+```
+
+测试检查 Redis 停止时读写返回 503，恢复后原值仍在；并发测试根据 Redis `MONITOR` 记录的 SET 命令顺序确定最后处理的写入，再通过 API 读取并比较最终值。未设置两个 Redis 可执行文件路径时测试会跳过。
