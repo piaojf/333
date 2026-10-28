@@ -24,3 +24,16 @@ curl http://127.0.0.1:8000/values/1
 python3 -m pip install -r requirements-dev.txt
 python3 -m unittest discover -s tests -v
 ```
+
+### 验证 Redis 持久化
+
+持久化测试会重启并重新创建 Redis 容器。请只对专门的测试项目运行，避免影响已有服务和数据；测试项目名称必须以 `persistence-test-` 开头。下面的命令使用独立卷，API 默认占用本机 8000 端口：
+
+```sh
+export PERSISTENCE_TEST_PROJECT=persistence-test-local
+docker compose -p "$PERSISTENCE_TEST_PROJECT" up --build -d
+python3 -m unittest discover -s tests -p test_persistence.py -v
+docker compose -p "$PERSISTENCE_TEST_PROJECT" down
+```
+
+`down` 保留测试卷。测试从目标 Compose 项目获取 API 端口，通过 HTTP 写入值，并在 Redis 重启和保留卷重建后分别读取；测试不会模拟异常断电。日常运行完整测试时未设置 `PERSISTENCE_TEST_PROJECT` 会跳过该测试。
