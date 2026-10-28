@@ -30,16 +30,18 @@ class RedisBehaviorTests(unittest.TestCase):
         cls.directory = tempfile.TemporaryDirectory(prefix="redis-behavior-test-")
         cls.addClassCleanup(cls.directory.cleanup)
         cls.redis_port = free_port()
-        cls.api_port = free_port()
-        cls.base_url = f"http://127.0.0.1:{cls.api_port}"
         cls.start_redis()
         cls.addClassCleanup(cls.stop_redis)
         env = dict(os.environ, REDIS_URL=f"redis://127.0.0.1:{cls.redis_port}/0")
-        cls.api = subprocess.Popen(
-            [sys.executable, "-m", "uvicorn", "app:app", "--host", "127.0.0.1",
-             "--port", str(cls.api_port)], env=env, stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            listener.listen()
+            cls.base_url = f"http://127.0.0.1:{listener.getsockname()[1]}"
+            cls.api = subprocess.Popen(
+                [sys.executable, "-m", "uvicorn", "app:app", "--fd", str(listener.fileno())],
+                env=env, pass_fds=(listener.fileno(),), stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
         cls.addClassCleanup(cls.stop_process, cls.api)
         cls.wait_ready(cls.base_url + "/docs", cls.api)
 
@@ -61,9 +63,15 @@ class RedisBehaviorTests(unittest.TestCase):
             if cls.redis.poll() is not None:
                 raise RuntimeError("Redis exited before becoming ready")
             try:
-                with socket.create_connection(("127.0.0.1", cls.redis_port), timeout=0.2):
+                info = subprocess.run(
+                    [os.environ["REDIS_TEST_CLI"], "-h", "127.0.0.1", "-p", str(cls.redis_port),
+                     "INFO", "server"], capture_output=True, text=True, timeout=1, check=True,
+                ).stdout
+                if re.search(rf"(?m)^process_id:{cls.redis.pid}\s*$", info):
                     return
-            except OSError:
+            except (OSError, subprocess.SubprocessError):
+                pass
+            if cls.redis.poll() is None:
                 time.sleep(0.05)
         cls.stop_redis()
         raise TimeoutError("Redis did not become ready")
